@@ -153,11 +153,11 @@ def main():
     
     report = collect_report()
     if not report:
-        print("❌ No data submitted.")
+        print(" No data submitted.")
         return
     
     assessment = analyze_email(report)
-    print("\n✅ Both Part 1 & Part 2 work!")
+    print("\n Both Part 1 & Part 2 work!")
 
 if __name__ == "__main__":
     main()
