@@ -201,32 +201,86 @@ def decide_priority(assessment: Dict) -> Dict:
         "ai_assessment": assessment
     }
     
-
-
 # ==============================================
-# MAIN
+# PART 4: DATA MANAGER — Save & Load Reports
 # ==============================================
 
+def save_report(report: Dict, decision: Dict) -> None:
+    """Save full record to JSON file, handle missing/corrupted files"""
+    records = []
+
+    # Load existing reports if file exists
+    if os.path.exists(DATA_FILE):
+        try:
+            with open(DATA_FILE, "r") as f:
+                records = json.load(f)
+        except (json.JSONDecodeError, IOError):
+            # If file broken, start fresh
+            records = []
+            print("     Previous file corrupted — starting new record")
+
+    # Combine everything into one neat record
+    full_record = {
+        "report":       report,
+        "decision":     decision,
+        "status":       "Pending Review"
+    }
+
+    # Add to list and save
+    records.append(full_record)
+
+    with open(DATA_FILE, "w") as f:
+        json.dump(records, f, indent=2)
+
+    print(f"\n Report saved! Total reports: {len(records)}")
+    print(f"   Stored in: {DATA_FILE}")
+
+
+def load_reports(filter_priority=None):
+    """Read all saved reports; optionally filter by priority"""
+    if not os.path.exists(DATA_FILE):
+        print("   No reports file found yet")
+        return []
+
+    try:
+        with open(DATA_FILE, "r") as f:
+            records = json.load(f)
+    except:
+        return []
+
+    if filter_priority:
+        return [r for r in records if r["decision"]["priority"] == filter_priority]
+    return records
+
 # ==============================================
-# MAIN — Part 1 + Part 2 + Part 3
+# MAIN — FULL PROGRAM: All 4 Parts Together
 # ==============================================
 
 def main():
-    print("\n===== PART 1+2+3 TEST =====")
-    
-    # Step 1: Collect
+    print("\n" + "=" * 50)
+    print("       PHISHGUARD — Phishing Detector")
+    print("=" * 50)
+    print("  Answer each question to submit a report.\n")
+
+    # 1️⃣ Collect info
     report = collect_report()
     if not report:
-        print(" No data submitted.")
+        print(" Submission cancelled — missing required info.")
         return
-    
-    # Step 2: Analyze
+
+    # 2️⃣ Analyze for phishing signs
     assessment = analyze_email(report)
-    
-    # Step 3: Decide priority
+
+    # 3️⃣ Decide priority
     decision = decide_priority(assessment)
-    
-    print("\n Part 1, 2 & 3 all working!")
+
+    # 4️⃣ Save everything
+    save_report(report, decision)
+
+    # Done!
+    print("\n" + "=" * 50)
+    print(" SUBMISSION COMPLETE — Thank you!")
+    print("=" * 50)
 
 if __name__ == "__main__":
     main()
