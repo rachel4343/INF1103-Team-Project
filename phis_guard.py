@@ -145,19 +145,88 @@ def analyze_email(report: Dict) -> Dict:
     }
 
 # ==============================================
+# PART 3: LOGIC MANAGER — Apply Business Rules
+# ==============================================
+
+def decide_priority(assessment: Dict) -> Dict:
+    """Use AI result to decide final priority & action"""
+    print("\n" + "-" * 50)
+    print("  Applying business rules...")
+    print("-" * 50)
+
+    # Get values from AI assessment
+    tl   = assessment["threat_level"]
+    conf = assessment["confidence"]
+    imp  = assessment["impersonation"]
+    urg  = assessment["urgency"]
+    cred = assessment["credential_request"]
+    link = assessment["suspicious_link"]
+
+    # Set default
+    priority = " MANUAL REVIEW"
+    action   = "Needs staff review"
+
+    # Apply your rules one by one
+    if tl == "critical" and conf >= 0.85:
+        priority = " CRITICAL"
+        action   = "Immediate Security Investigation — block sender now"
+    elif cred and link and conf >= 0.80:
+        priority = " URGENT"
+        action   = "Investigate within 1 hour — block suspicious link"
+    elif imp and urg and tl == "high":
+        priority = " HIGH"
+        action   = "Investigate within 24 hours"
+    elif tl == "medium" and conf >= 0.75:
+        priority = " MEDIUM"
+        action   = "Review during next business day"
+    elif tl == "low" and conf >= 0.90 and not link:
+        priority = " LOW"
+        action   = "Likely safe — routine review"
+    elif conf < 0.60:
+        priority = " MANUAL REVIEW"
+        action   = "System uncertain — staff check needed"
+
+    # Extra safety: if says LOW but has red flags → upgrade
+    if "LOW" in priority and (imp or cred or link):
+        priority = " MEDIUM"
+        action   = "Re-evaluate — mixed signals detected"
+
+    # Show result
+    print(f"   Final Priority: {priority}")
+    print(f"   Recommended:    {action}")
+
+    return {
+        "priority": priority,
+        "action": action,
+        "ai_assessment": assessment
+    }
+    
+
+
+# ==============================================
 # MAIN
 # ==============================================
 
+# ==============================================
+# MAIN — Part 1 + Part 2 + Part 3
+# ==============================================
+
 def main():
-    print("\n===== PART 1 + PART 2 TEST =====")
+    print("\n===== PART 1+2+3 TEST =====")
     
+    # Step 1: Collect
     report = collect_report()
     if not report:
         print(" No data submitted.")
         return
     
+    # Step 2: Analyze
     assessment = analyze_email(report)
-    print("\n Both Part 1 & Part 2 work!")
+    
+    # Step 3: Decide priority
+    decision = decide_priority(assessment)
+    
+    print("\n Part 1, 2 & 3 all working!")
 
 if __name__ == "__main__":
     main()
