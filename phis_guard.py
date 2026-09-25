@@ -1,286 +1,320 @@
 # ==============================================
-# PHISHGUARD — Part 1: Collect Information
+#  PHISHGUARD — AI-Powered Phishing Detector
+#  INF1103 Team Project
+#  Features: Yes/No Flow · Privacy Blur · Custom API · Keyword Tool
 # ==============================================
 
 import json
 import os
 import re
-from typing import Dict
+from typing import Dict, List
+
+# ──────────────────────────────────────────────
+#  OUR PHISHGUARD API — Unique Word Database
+#  Add/remove words here anytime
+# ──────────────────────────────────────────────
+PHISHGUARD_API = {
+    "urgency": [
+        "urgent", "immediately", "now", "expire", "deadline", "suspend",
+        "block", "close", "act fast", "right now", "limited time"
+    ],
+    "credential": [
+        "password", "login", "verify", "account", "otp", "pin",
+        "username", "sign in", "confirm", "credential"
+    ],
+    "impersonation": [
+        "it support", "helpdesk", "security team", "hr department",
+        "admin", "system admin", "technical team", "it department"
+    ],
+    "risky_links": [
+        "bit.ly", "tinyurl", "goo.gl", "login-verify", "account-verify"
+    ]
+}
 
 DATA_FILE = "phishguard_reports.json"
 
+# ──────────────────────────────────────────────
+#  PRIVACY PROTECTION — Blur Before Saving
+# ──────────────────────────────────────────────
+def blur_privacy(text: str) -> str:
+    """Hide NRIC, phone, email — never save as plain text"""
+    if not text:
+        return text
+
+    # NRIC: S1234567A → S*******A
+    text = re.sub(r'\b([A-Za-z])\d{7}([A-Za-z])\b', r'\1*******\2', text)
+    
+    # Phone: 91234567 → 91****67
+    text = re.sub(r'(\d{2})\d{4}(\d{2})', r'\1****\2', text)
+    
+    # Email: john@domain.com → j***@domain.com
+    text = re.sub(r'(\w)\w+@(\w+\.\w+)', r'\1***@\2', text)
+    
+    return text
+
+# ──────────────────────────────────────────────
+#  API SCANNER — Our Own Detection Engine
+# ──────────────────────────────────────────────
+def scan_with_api(text: str, sender: str = "") -> Dict:
+    """Check text against our word list → return findings + threat level"""
+    t = text.lower()
+    s = sender.lower()
+
+    found = {
+        "urgency": [],
+        "credential": [],
+        "impersonation": [],
+        "risky_links": [],
+        "score": 0
+    }
+
+    for word in PHISHGUARD_API["urgency"]:
+        if word in t:
+            found["urgency"].append(word)
+            found["score"] += 1
+
+    for word in PHISHGUARD_API["credential"]:
+        if word in t:
+            found["credential"].append(word)
+            found["score"] += 2
+
+    for word in PHISHGUARD_API["impersonation"]:
+        if word in s and found["credential"]:
+            found["impersonation"].append(word)
+            found["score"] += 2
+
+    for link in PHISHGUARD_API["risky_links"]:
+        if link in t:
+            found["risky_links"].append(link)
+            found["score"] += 2
+
+    # Threat level from score
+    score = found["score"]
+    if score >= 6:
+        level, conf = "critical", 0.92
+    elif score >= 4:
+        level, conf = "high", 0.85
+    elif score >= 2:
+        level, conf = "medium", 0.72
+    elif score >= 1:
+        level, conf = "low", 0.60
+    else:
+        level, conf = "safe", 0.95
+
+    return {
+        "found": found,
+        "threat_level": level,
+        "confidence": conf
+    }
+
+# ──────────────────────────────────────────────
+#  KEYWORD TOOL — Check Anytime, No Save
+# ──────────────────────────────────────────────
+def keyword_tool():
+    """Scan text without submitting — safe & quick"""
+    print("\n" + "-" * 50)
+    print(" PHISHGUARD Keyword Checker")
+    print("-" * 50)
+    text = input("Paste text to scan: ")
+    if not text.strip():
+        print("Nothing entered.")
+        return
+
+    result = scan_with_api(text)
+    f = result["found"]
+
+    print("\n Results:")
+    if f["urgency"]: print("    Urgency words:", ", ".join(f["urgency"]))
+    if f["credential"]: print("    Login/Password words:", ", ".join(f["credential"]))
+    if f["impersonation"]: print("    Impersonation:", ", ".join(f["impersonation"]))
+    if f["risky_links"]: print("    Risky links:", ", ".join(f["risky_links"]))
+    
+    if result["threat_level"] == "safe":
+        print("    No red flags found")
+    else:
+        print(f"    Threat Level: {result['threat_level'].upper()}")
+    
+    input("\nPress Enter to continue...")
+
+# ──────────────────────────────────────────────
+#  COLLECT — Yes/No Flow
+# ──────────────────────────────────────────────
 def collect_report() -> Dict:
     print("\n" + "=" * 50)
-    print("       PHISHGUARD — Report Suspicious Email")
+    print("        Submit Email Report")
     print("=" * 50)
-    print("Answer the questions below.\n")
 
-    print(" 1. Sender")
-    sender_email = input("  Sender email   : ").strip()
-    sender_name  = input("  Sender name    : ").strip()
+    # Step 1: Did they view?
+    viewed = input("\nDid you open/view this email? (yes/no): ").strip().lower()
 
-    print("\n 2. Email Content")
-    subject = input("  Email subject  : ").strip()
-    body    = input("  Email message  : ").strip()
+    if viewed == "no":
+        # --- NOT VIEWED — still scan & save ---
+        print("\n Why didn't you view it?")
+        reason = input("Type reason or description: ").strip()
+        
+        sender = input("Sender name/email (if known): ").strip() or "Not provided"
+        subject = input("Subject line (if known): ").strip() or "Not provided"
 
-    print("\n 3. Links & Attachments")
-    print("  (Separate multiple with comma , )")
-    links_text  = input("  Links found    : ").strip()
-    attach_text = input("  Attachments    : ").strip()
+        # Blur before anything
+        sender_safe = blur_privacy(sender)
+        subject_safe = blur_privacy(subject)
+        reason_safe = blur_privacy(reason)
+        brief_text = f"NOT VIEWED — Reason: {reason_safe} | Sender: {sender_safe} | Subject: {subject_safe}"
 
-    print("\n 4. Extra Info")
-    suspicion = input("  Why suspicious? : ").strip()
-    actions   = input("  Actions taken  : ").strip().lower()
+        # Still run our API
+        assessment = scan_with_api(brief_text, sender_safe)
 
-    links = [item.strip() for item in links_text.split(",") if item.strip()]
-    files = [item.strip() for item in attach_text.split(",") if item.strip()]
+        return {
+            "viewed": False,
+            "reason_not_viewed": reason_safe,
+            "sender": sender_safe,
+            "subject": subject_safe,
+            "note": brief_text,
+            "assessment": assessment
+        }
 
-    errors = []
-    if not body:
-        errors.append("  Please type the email message — it's needed!")
-    if not sender_email and not sender_name:
-        errors.append("  Need at least sender email OR name")
+    # --- VIEWED — full details ---
+    print("\n Enter Email Details")
+    sender = input("Sender email   : ").strip()
+    s_name = input("Sender name    : ").strip()
+    subject = input("Email subject  : ").strip()
+    body = input("Email message  : ").strip()
 
-    if errors:
-        print("\n" + "-" * 50)
-        for msg in errors:
-            print(msg)
-        print("-" * 50)
-        return {}
+    # Blur ALL sensitive data
+    sender_safe = blur_privacy(sender)
+    sname_safe = blur_privacy(s_name)
+    subj_safe = blur_privacy(subject)
+    body_safe = blur_privacy(body)
 
-    print("\n Information collected successfully!\n")
-    return {
-        "sender_email": sender_email,
-        "sender_name":  sender_name,
-        "subject":      subject,
-        "body":         body,
-        "links":        links,
-        "attachments":  files,
-        "suspicion":    suspicion,
-        "actions":      actions
-    }
+    if body_safe != body:
+        print("    Privacy protected — sensitive data hidden")
 
-# ==============================================
-# PART 2: AI MANAGER — Analyze Email
-# ==============================================
+    links_in = input("Links found (comma-separated): ").strip()
+    attach_in = input("Attachments: ").strip()
+    actions = input("Actions taken (clicked/opened/none): ").strip().lower()
 
-def analyze_email(report: Dict) -> Dict:
-    print("\n" + "-" * 50)
-    print(" Checking for phishing signs...")
-    print("-" * 50)
+    links = [x.strip() for x in links_in.split(",") if x.strip()]
+    files = [x.strip() for x in attach_in.split(",") if x.strip()]
 
-    full_text = f"{report['subject']} {report['body']}".lower()
-    sender_info = f"{report['sender_name']} {report['sender_email']}".lower()
-
-    impersonation = (
-        bool(re.search(r"(it|support|admin|helpdesk|security)", sender_info))
-        and
-        bool(re.search(r"(verify|account|login|suspend)", full_text))
-    )
-
-    urgency = bool(re.search(
-        r"(urgent|immediately|now|expire|close|suspend|deadline)", full_text
-    ))
-
-    credential_request = bool(re.search(
-        r"(password|otp|credential|verify|username|login|pin)", full_text
-    ))
-
-    suspicious_link = (
-        len(report["links"]) > 0
-        or
-        bool(re.search(r"(bit\.ly|tinyurl|goo\.gl|login|verify)", full_text))
-    )
-
-    risky_attachment = len(report["attachments"]) > 0
-
-    total_signs = sum([
-        impersonation,
-        urgency,
-        credential_request,
-        suspicious_link,
-        risky_attachment
-    ])
-
-    found = []
-    if impersonation:    found.append("Impersonation")
-    if urgency:          found.append("Urgency/Pressure")
-    if credential_request: found.append("Asking for credentials")
-    if suspicious_link:  found.append("Suspicious links")
-    if risky_attachment: found.append("Risky attachments")
-
-    if found:
-        print(f"   Found: {', '.join(found)}")
-    else:
-        print("   No phishing signs detected")
-
-    if total_signs >= 4:
-        threat_level = "critical"
-        confidence = 0.90
-    elif total_signs == 3:
-        threat_level = "high"
-        confidence = 0.85
-    elif total_signs == 2:
-        threat_level = "medium"
-        confidence = 0.75
-    elif total_signs == 1:
-        threat_level = "low"
-        confidence = 0.65
-    else:
-        threat_level = "low"
-        confidence = 0.95
-
-    print(f"\n   Threat Level: {threat_level.upper()}")
-    print(f"   Confidence:   {confidence:.0%}")
+    # Run our API
+    full_text = f"{subj_safe} {body_safe}"
+    sender_full = f"{sname_safe} {sender_safe}"
+    assessment = scan_with_api(full_text, sender_full)
 
     return {
-        "threat_level": threat_level,
-        "confidence": confidence,
-        "impersonation": impersonation,
-        "urgency": urgency,
-        "credential_request": credential_request,
-        "suspicious_link": suspicious_link,
-        "risky_attachment": risky_attachment,
-        "signs_found": total_signs
+        "viewed": True,
+        "sender_email": sender_safe,
+        "sender_name": sname_safe,
+        "subject": subj_safe,
+        "body": body_safe,
+        "links": links,
+        "attachments": files,
+        "actions": actions,
+        "assessment": assessment
     }
 
-# ==============================================
-# PART 3: LOGIC MANAGER — Apply Business Rules
-# ==============================================
-
-def decide_priority(assessment: Dict) -> Dict:
-    """Use AI result to decide final priority & action"""
+# ──────────────────────────────────────────────
+#  DECIDE — Show Result
+# ──────────────────────────────────────────────
+def decide_and_show(report: Dict) -> Dict:
     print("\n" + "-" * 50)
-    print("  Applying business rules...")
+    print(" PHISHGUARD ASSESSMENT")
     print("-" * 50)
 
-    # Get values from AI assessment
-    tl   = assessment["threat_level"]
-    conf = assessment["confidence"]
-    imp  = assessment["impersonation"]
-    urg  = assessment["urgency"]
-    cred = assessment["credential_request"]
-    link = assessment["suspicious_link"]
+    a = report["assessment"]
+    f = a["found"]
 
-    # Set default
-    priority = " MANUAL REVIEW"
-    action   = "Needs staff review"
+    # Show what we found
+    if f["urgency"]: print("    Urgency words:", ", ".join(f["urgency"]))
+    if f["credential"]: print("    Credential requests:", ", ".join(f["credential"]))
+    if f["impersonation"]: print("    Impersonation:", ", ".join(f["impersonation"]))
+    if f["risky_links"]: print("    Risky links:", ", ".join(f["risky_links"]))
 
-    # Apply your rules one by one
-    if tl == "critical" and conf >= 0.85:
-        priority = " CRITICAL"
-        action   = "Immediate Security Investigation — block sender now"
-    elif cred and link and conf >= 0.80:
-        priority = " URGENT"
-        action   = "Investigate within 1 hour — block suspicious link"
-    elif imp and urg and tl == "high":
-        priority = " HIGH"
-        action   = "Investigate within 24 hours"
-    elif tl == "medium" and conf >= 0.75:
-        priority = " MEDIUM"
-        action   = "Review during next business day"
-    elif tl == "low" and conf >= 0.90 and not link:
-        priority = " LOW"
-        action   = "Likely safe — routine review"
-    elif conf < 0.60:
-        priority = " MANUAL REVIEW"
-        action   = "System uncertain — staff check needed"
+    # Priority & action
+    tl = a["threat_level"]
+    if not report["viewed"]:
+        priority = " REVIEW RECOMMENDED"
+        action = "Do NOT open — report to IT"
+    elif tl == "critical":
+        priority = " CRITICAL — DO NOT CLICK"
+        action = "Block sender + change passwords immediately"
+    elif tl == "high":
+        priority = " HIGH RISK"
+        action = "Report to IT — do not reply"
+    elif tl == "medium":
+        priority = " SUSPICIOUS"
+        action = "Verify sender through official channel"
+    elif tl == "low":
+        priority = " CAUTION"
+        action = "Proceed with care"
+    else:
+        priority = " APPEARS SAFE"
+        action = "No red flags detected — stay vigilant"
 
-    # Extra safety: if says LOW but has red flags → upgrade
-    if "LOW" in priority and (imp or cred or link):
-        priority = " MEDIUM"
-        action   = "Re-evaluate — mixed signals detected"
-
-    # Show result
-    print(f"   Final Priority: {priority}")
-    print(f"   Recommended:    {action}")
+    print(f"\n   Priority: {priority}")
+    print(f"   Action:   {action}")
 
     return {
         "priority": priority,
         "action": action,
-        "ai_assessment": assessment
+        "assessment": a
     }
-    
-# ==============================================
-# PART 4: DATA MANAGER — Save & Load Reports
-# ==============================================
 
-def save_report(report: Dict, decision: Dict) -> None:
-    """Save full record to JSON file, handle missing/corrupted files"""
+# ──────────────────────────────────────────────
+#  SAVE — Both YES & NO go to SAME File
+# ──────────────────────────────────────────────
+def save_report(report: Dict, decision: Dict):
     records = []
-
-    # Load existing reports if file exists
+    
     if os.path.exists(DATA_FILE):
         try:
             with open(DATA_FILE, "r") as f:
                 records = json.load(f)
-        except (json.JSONDecodeError, IOError):
-            # If file broken, start fresh
+        except:
             records = []
-            print("     Previous file corrupted — starting new record")
 
-    # Combine everything into one neat record
     full_record = {
-        "report":       report,
-        "decision":     decision,
-        "status":       "Pending Review"
+        "viewed_email": report["viewed"],
+        "report": report,
+        "decision": decision,
+        "status": "Pending Review"
     }
 
-    # Add to list and save
     records.append(full_record)
 
     with open(DATA_FILE, "w") as f:
         json.dump(records, f, indent=2)
 
-    print(f"\n Report saved! Total reports: {len(records)}")
-    print(f"   Stored in: {DATA_FILE}")
+    print(f"\n Saved! Total reports: {len(records)}")
+    print(f"   File: {DATA_FILE}")
 
-
-def load_reports(filter_priority=None):
-    """Read all saved reports; optionally filter by priority"""
-    if not os.path.exists(DATA_FILE):
-        print("   No reports file found yet")
-        return []
-
-    try:
-        with open(DATA_FILE, "r") as f:
-            records = json.load(f)
-    except:
-        return []
-
-    if filter_priority:
-        return [r for r in records if r["decision"]["priority"] == filter_priority]
-    return records
-
-# ==============================================
-# MAIN — FULL PROGRAM: All 4 Parts Together
-# ==============================================
-
+# ──────────────────────────────────────────────
+#  MAIN MENU — Start Here
+# ──────────────────────────────────────────────
 def main():
-    print("\n" + "=" * 50)
-    print("       PHISHGUARD — Phishing Detector")
-    print("=" * 50)
-    print("  Answer each question to submit a report.\n")
+    while True:
+        print("\n" + "=" * 50)
+        print("   PHISHGUARD — Main Menu")
+        print("=" * 50)
+        print("  1. Submit Email Report")
+        print("  2. Keyword Checker Tool")
+        print("  3. Exit")
+        print("=" * 50)
 
-    # 1️⃣ Collect info
-    report = collect_report()
-    if not report:
-        print(" Submission cancelled — missing required info.")
-        return
+        choice = input("\nChoose (1-3): ").strip()
 
-    # 2️⃣ Analyze for phishing signs
-    assessment = analyze_email(report)
-
-    # 3️⃣ Decide priority
-    decision = decide_priority(assessment)
-
-    # 4️⃣ Save everything
-    save_report(report, decision)
-
-    # Done!
-    print("\n" + "=" * 50)
-    print(" SUBMISSION COMPLETE — Thank you!")
-    print("=" * 50)
+        if choice == "2":
+            keyword_tool()
+        elif choice == "1":
+            report = collect_report()
+            decision = decide_and_show(report)
+            save_report(report, decision)
+            print("\n Report complete!")
+        elif choice == "3":
+            print("\nStay Safe! ")
+            break
+        else:
+            print(" Please choose 1, 2, or 3")
 
 if __name__ == "__main__":
     main()
